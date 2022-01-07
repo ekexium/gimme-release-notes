@@ -45,7 +45,9 @@ async fn main() -> Result<()> {
             .iter()
             .any(|label| label["name"].as_str().unwrap() == "release-note")
         {
-            println!("\n{}", sha);
+            let number = pr["number"].as_u64().unwrap();
+            let url = pr["html_url"].as_str().unwrap();
+            println!("\n{}\n[#{}]({})", sha, number, url);
             let body = pr["body"].as_str().unwrap();
             let re = Regex::new(r#"### Release note[\s\S]*```([\s\S]*)```"#).unwrap();
             for cap in re.captures_iter(body) {
