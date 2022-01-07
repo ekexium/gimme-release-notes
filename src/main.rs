@@ -18,18 +18,34 @@ type Result<T> = std::result::Result<T, MyError>;
 async fn main() -> Result<()> {
     let matches = clap::App::new("gimme release notes")
         .version("0.1.0")
-        .arg(Arg::new("url").short('u').long("url").takes_value(true))
+        .arg(
+            Arg::new("repo")
+                .short('r')
+                .long("repo")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::new("range")
+                .long("range")
+                .takes_value(true)
+                .required(true),
+        )
         .get_matches();
-    let url = matches.value_of("url").unwrap();
+    let repo = matches.value_of("repo").unwrap();
+    let range = matches.value_of("range").unwrap();
 
     // get all commits
-    let json = easy_get(url)?;
+    let json = easy_get(&format!(
+        "https://api.github.com/repos/{}/compare/{}",
+        repo, range
+    ))?;
     let commits = json["commits"].as_array().unwrap();
     for commit in commits {
         let sha = commit["sha"].as_str().unwrap();
         let data = easy_get(&format!(
-            "https://api.github.com/repos/tikv/tikv/commits/{}/pulls",
-            sha
+            "https://api.github.com/repos/{}/commits/{}/pulls",
+            repo, sha
         ))?;
         let data = data.as_array().unwrap();
         if data.len() > 1 {
