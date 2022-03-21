@@ -36,11 +36,25 @@ async fn main() -> Result<()> {
     let range = matches.value_of("range").unwrap();
 
     // get all commits
-    let json = easy_get(&format!(
-        "https://api.github.com/repos/{}/compare/{}",
-        repo, range
-    ))?;
-    let commits = json["commits"].as_array().unwrap();
+    let page_size = 100;
+    let mut page_id = 1;
+    loop {
+        let json = easy_get(&format!(
+            "https://api.github.com/repos/{}/compare/{}?page={}&page_size={}",
+            repo, range, page_id, page_size
+        ))?;
+        let commits = json["commits"].as_array().unwrap();
+        handle_a_batch(commits, repo)?;
+        let total_commit = json["total_commits"].as_u64().unwrap();
+        if page_id * page_size >= total_commit {
+            break;
+        }
+        page_id += 1;
+    }
+    Ok(())
+}
+
+fn handle_a_batch(commits: &Vec<Value>, repo: &str) -> Result<()> {
     for commit in commits {
         let sha = commit["sha"].as_str().unwrap();
         let data = easy_get(&format!(
