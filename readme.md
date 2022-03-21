@@ -4,10 +4,10 @@ A tool to pick every release note from the TiKV (and propably others) repo in a 
 For example, 
 
 to find all release notes for TiKV from realease 5.3 to release 5.4, 
-run `GITHUB_TOKEN=<your_github_token> cargo run -- -r tikv/tikv --range release-5.3...release-5.4`
+run `GITHUB_TOKEN=<your_github_token> cargo run -- -r tikv/tikv --range release-5.3...release-5.4 -o out.txt`
 
 to find all release notes for TiDB from release 5.4 to master
-`GITHUB_TOKEN=<your_github_token> cargo run -- -r pingcap/tidb --range release-5.4...master`
+`GITHUB_TOKEN=<your_github_token> cargo run -- -r pingcap/tidb --range release-5.4...master -o out.txt`
 
 It gives the output like:
 ```

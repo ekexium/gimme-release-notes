@@ -1,7 +1,12 @@
 use clap::Arg;
 use curl::easy::{Easy, List};
+use indicatif::ProgressBar;
 use regex::Regex;
 use serde_json::Value;
+use std::fmt::Write as _;
+use std::fs::File;
+use std::io::Write as _;
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -10,6 +15,8 @@ enum MyError {
     Serde(#[from] serde_json::Error),
     #[error("{0}")]
     String(String),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
 }
 
 type Result<T> = std::result::Result<T, MyError>;
@@ -31,32 +38,63 @@ async fn main() -> Result<()> {
                 .takes_value(true)
                 .required(true),
         )
+        .arg(
+            Arg::new("output")
+                .short('o')
+                .long("output")
+                .takes_value(true)
+                .required(true),
+        )
         .get_matches();
     let repo = matches.value_of("repo").unwrap();
     let range = matches.value_of("range").unwrap();
+    let output = matches.value_of("output").unwrap();
 
     // get all commits
-    let page_size = 100;
+    let page_size = 30;
     let mut page_id = 1;
+    let mut handles = vec![];
+    let json = easy_get(&format!(
+        "https://api.github.com/repos/{}/compare/{}?page={}&page_size={}",
+        repo, range, page_id, page_size
+    ))?;
+    let total_commit = json["total_commits"].as_u64().unwrap();
+    let bar = Arc::new(ProgressBar::new(total_commit));
+
     loop {
-        let json = easy_get(&format!(
-            "https://api.github.com/repos/{}/compare/{}?page={}&page_size={}",
-            repo, range, page_id, page_size
-        ))?;
-        let commits = json["commits"].as_array().unwrap();
-        handle_a_batch(commits, repo)?;
-        let total_commit = json["total_commits"].as_u64().unwrap();
+        let repo = repo.to_owned();
+        let range = range.to_owned();
+        let bar = bar.clone();
+        let handle = tokio::spawn(async move {
+            let json = easy_get(&format!(
+                "https://api.github.com/repos/{}/compare/{}?page={}&page_size={}",
+                repo, range, page_id, page_size
+            ))?;
+            let commits = json["commits"].as_array().unwrap();
+            handle_a_batch(commits, &repo, bar)
+        });
+        handles.push(handle);
         if page_id * page_size >= total_commit {
             break;
         }
         page_id += 1;
     }
+    println!("all workers started");
+
+    let mut out_file: File = std::fs::File::create(output)?;
+    for handle in handles {
+        let s = handle.await.unwrap()?;
+        out_file.write_all(s.as_bytes())?;
+    }
+    bar.finish();
     Ok(())
 }
 
-fn handle_a_batch(commits: &Vec<Value>, repo: &str) -> Result<()> {
+fn handle_a_batch(commits: &Vec<Value>, repo: &str, bar: Arc<ProgressBar>) -> Result<String> {
+    let mut res = String::new();
     for commit in commits {
         let sha = commit["sha"].as_str().unwrap();
+        bar.inc(1);
         let data = easy_get(&format!(
             "https://api.github.com/repos/{}/commits/{}/pulls",
             repo, sha
@@ -77,15 +115,15 @@ fn handle_a_batch(commits: &Vec<Value>, repo: &str) -> Result<()> {
         {
             let number = pr["number"].as_u64().unwrap();
             let url = pr["html_url"].as_str().unwrap();
-            println!("\n{}\n[#{}]({})", sha, number, url);
+            write!(res, "\n{}\n[#{}]({})", sha, number, url).unwrap();
             let body = pr["body"].as_str().unwrap();
             let re = Regex::new(r#"### Release note[\s\S]*```([\s\S]*)```"#).unwrap();
             for cap in re.captures_iter(body) {
-                println!("{}", &cap[1]);
+                write!(res, "{}", &cap[1]).unwrap();
             }
         }
     }
-    Ok(())
+    Ok(res)
 }
 
 fn easy_get(url: &str) -> Result<Value> {
